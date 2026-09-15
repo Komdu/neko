@@ -82,9 +82,9 @@ module speaker() {
     translate([face_x - FLAT_DEPTH - 1, -FLAT_W / 2, -1])
       cube([FLAT_DEPTH + 1, FLAT_W, H_SPK - TOP_T]);
 
-    // окно OLED
-    translate([face_x - WALL - 1.5, 0, OL_Y])
-      rod_round(OL_W, OL_H, OL_R, WALL + 3);
+    // окно OLED (сквозь плоский лоб: центр прута на face_x)
+    translate([face_x, 0, OL_Y])
+      rod_round(OL_W, OL_H, OL_R, WALL + 4);
 
     // кнопки
     for (y = BTN_YS)
