@@ -4,7 +4,7 @@ import re
 
 import requests
 
-HA_URL = os.getenv("HA_URL", "https://ha.komdu.is-cool.dev").rstrip("/")
+HA_URL = os.getenv("HA_URL").rstrip("/") if os.getenv("HA_URL") else ""
 HA_TOKEN = os.getenv("HA_TOKEN", "")
 
 _ATTR_KEYS = (
