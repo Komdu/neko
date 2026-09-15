@@ -119,19 +119,22 @@ module speaker() {
             cylinder(r1 = BTN_D / 2, r2 = BTN_D / 2 + BTN_FLARE, h = 12, $fn = 64);
       }
 
-      // гриль — вертикальные щели в задней половине, сквозь стенку
+      // гриль — вертикальные щели в задней половине. Пробивают стенку НАСКВОЗЬ:
+      // от 0.5мм внутрь полости до 0.5мм за наружную поверхность — чтобы не
+      // оставалось тонких 0.3мм перепонок у внутренней кромки (их видит слайсер).
       for (a = [GRILL_A0:GRILL_STEP:GRILL_LAST])
         rotate([0, 0, a])
-          translate([SPK_D / 2 - WALL - 0.3, -GRILL_W / 2, BASE_T - 1])
-            cube([WALL + 1.5, GRILL_W, GRILL_H]);
+          translate([spk_in / 2 - 0.5, -GRILL_W / 2, BASE_T - 1])
+            cube([WALL + 1.0, GRILL_W, GRILL_H]);
 
-      // отверстия микрофона в крышке
+      // отверстия микрофона — СКВОЗНЫЕ через всю крышку (от низа крышки TOP_T
+      // до выше поверхности), чтобы не оставалось совпадающих плоскостей.
       for (i = [0:MIC_N - 1]) {
         a = i * 360 / MIC_N;
-        translate([MIC_R * cos(a), MIC_R * sin(a), H_SPK - 0.01])
-          cylinder(d = MIC_D, h = TOP_T + 1);
+        translate([MIC_R * cos(a), MIC_R * sin(a), H_SPK - TOP_T - 0.01])
+          cylinder(d = MIC_D, h = TOP_T + 1.02, $fn = 48);
       }
-      translate([0, 0, H_SPK - 0.01]) cylinder(d = MIC_D, h = TOP_T + 1);
+      translate([0, 0, H_SPK - TOP_T - 0.01]) cylinder(d = MIC_D, h = TOP_T + 1.02, $fn = 48);
 
       // слот USB-C — на задней стенке (x=-46 центр щели, насквозь через корпус)
       translate([-SPK_D / 2 + 1.5, 0, USB_Z])
@@ -139,12 +142,15 @@ module speaker() {
     }
 
     // коническая чашка внизу: дна НЕТ, только кольцо с углублением под заглушку.
+    // Пара "спикер + чашка" сшивается намеренным перекрытием (чашка чуть шире
+    // полости, +0.4мм в стенку) — без совпадающих цилиндрических граней,
+    // которые слайсер видит как шов/дырку.
     // Вырезы на 90/270° — снизу, до края: палец заходит под край деки.
-    translate([0, 0, 0]) {
+    translate([0, 0, -0.01]) {
       difference() {
-        cylinder(r = spk_in / 2, h = SOCKET_H, $fn = 120);
-        translate([0, 0, -0.01])
-          cylinder(r1 = SOCKET_RB, r2 = SOCKET_RT, h = SOCKET_H + 0.02, $fn = 120);
+        cylinder(r = spk_in / 2 + 0.4, h = SOCKET_H + 0.02, $fn = 120);
+        translate([0, 0, -0.02])
+          cylinder(r1 = SOCKET_RB, r2 = SOCKET_RT, h = SOCKET_H + 0.04, $fn = 120);
         for (a = [90, 270])
           rotate([0, 0, a])
             translate([40, 0, 2.2])
