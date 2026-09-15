@@ -66,13 +66,13 @@ pio run -e amp_probe -t upload && pio device monitor -e amp_probe
 Тест усилителя запускается **только после проверки модуля омметром**: на живой
 плате между `OUT+`/`OUT-`/`GND` не должно быть единиц мОм (мёртвый мост = КЗ).
 
-### Сеть (в `main.cpp:5`)
+### Сеть (в `esp32_speaker/src/secrets.h`, шаблон — `secrets.h.example`)
 ```cpp
-const char* ssid = "fu24";          // точка доступа
-const char* password = "...";        // пароль
-IPAddress staticIP(192,168,0,200);   // статик-адрес колонки (assistant.py его ждёт)
+#define WIFI_SSID "YOUR-SSID"      // точка доступа
+#define WIFI_PASSWORD "YOUR-PASS"  // пароль
+#define OTA_PASSWORD "neko-ota"    // пароль OTA (совпадает с `-a` в ota.sh)
 ```
-Gateway/подсеть и наличие роутера меняются там же.
+Статик-адрес колонки: `192.168.0.200` (его ждёт `assistant.py`), меняется там же.
 
 ### Прошивка по сети (OTA)
 Боевая прошивка умеет обновляться по WiFi (ArduinoOTA, порт 3232, пароль `neko-ota`):
