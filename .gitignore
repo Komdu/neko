@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+*.log
+
+# Большие/локальные
+wheels/
+tmp/
+mic_record.wav
+
+# Пробные скрипты
+beep_test.py
+jp_rofl.py
+silero_alice.py
+silero_test.py
+silero_voices.py
+
+# PlatformIO
+.pio/
+esp32_speaker/.pio/
+
+# Секреты (и токен-скрипты их чтения не коммитят сами файлы)
+esp32_speaker/src/secrets.h
+ha_env.sh
+miio_env.sh
+music_env.sh
