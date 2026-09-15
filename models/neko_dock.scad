@@ -42,6 +42,17 @@ USB_H     = 4;          // высота щели
 USB_X     = 0.8;        // радиус скругления углов щели
 USB_Z     = 25;         // центр щели от низа
 
+// ---- ДНО-ЗАГЛУШКА: без винтов, КОНУСНАЯ посадка в гнездо ----
+// Гнездо сужается книзу; заглушка клином в нём держится, даже если принтер
+// "плывёт" на ±0.5 мм (меняется только глубина посадки). Вытаскивается
+// пальцем/отвёрткой за боковые выемки.
+DECK_T    = 4;         // толщина заглушки
+DECK_R    = 38.4;      // верхний радиус заглушки (гнездо 37.6->38.6, клин ~0.4мм)
+DECK_RB   = 37.4;      // нижний (зауженный) радиус заглушки
+SOCKET_H  = 7;         // глубина гнезда
+SOCKET_RB = 37.6;      // радиус гнезда снизу (жёстко: до 38.0 — не заклинит)
+BASE_FLOOR = 2;        // сплошная плита под гнездом
+
 face_x = SPK_D / 2 - FLAT_DEPTH;        // координата плоского "лба"
 spk_in = SPK_D - 2 * WALL;              // внутренний диаметр трубки
 
@@ -57,59 +68,93 @@ module rod_round(w, h, r, t) {
 }
 
 // ------------------------------ КОЛОНКА ------------------------------
-// Единый твёрдый объект: трубка + дно + крышка, вся геометрия вырезается
-// (никаких "плавающих" объёмов, поэтому на выходе 1 solid).
+// Единый твёрдый объект: трубка + крышка, низ ОТКРЫТ под съёмное дно.
+// Вся геометрия вырезается (никаких "плавающих" объёмов → 1 solid).
 module speaker() {
-  difference() {
-    // тело колонки
-    cylinder(d = SPK_D, h = H_SPK);
+  union() {
+    difference() {
+      // тело колонки
+      cylinder(d = SPK_D, h = H_SPK);
 
-    // D-образная полость: сзади круглая (радиус spk_in/2), спереди обрезана
-    // ровно плоскостью лба face_x. ВАЖНО: не face_x+... — иначе полость съедает
-    // материал самого лба, и окно OLED некуда вырезать (вместо окна — проём).
-    intersection() {
-      // круглое ядро полости
-      translate([0, 0, BASE_T])
-        cylinder(d = spk_in, h = H_SPK - BASE_T - TOP_T + 0.01);
-      // куб обрезки: по X от -spk_in/2 до face_x (плоскость лба), по Y симметрично
-      translate([-spk_in / 2, -spk_in / 2, BASE_T - 0.01])
-        cube([spk_in / 2 + face_x, spk_in, H_SPK - BASE_T - TOP_T + 0.02]);
+      // D-образная полость: сзади круглая (радиус spk_in/2), спереди обрезана
+      // ровно плоскостью лба face_x, снизу открыта (до z=0).
+      intersection() {
+        // круглое ядро полости
+        translate([0, 0, -0.01])
+          cylinder(d = spk_in, h = H_SPK - TOP_T + 0.02);
+        // куб обрезки: по X от -spk_in/2 до face_x (плоскость лба)
+        translate([-spk_in / 2, -spk_in / 2, -0.02])
+          cube([spk_in / 2 + face_x, spk_in, H_SPK - TOP_T + 0.03]);
+      }
+
+      // лоб под экран и кнопки (плоский участок срезается с цилиндра).
+      // Срез ограничен снизу полом BASE_T — иначе вырезается кусок дна (дырка снизу).
+      translate([face_x - FLAT_DEPTH - 1, -FLAT_W / 2, BASE_T])
+        cube([FLAT_DEPTH + 1, FLAT_W, H_SPK - TOP_T - BASE_T]);
+
+      // окно OLED — канал НАСКВОЗЬ через лоб и стенку (длиннее наружного
+      // диаметра), чтобы снаружи был реальный сквозной проём.
+      translate([face_x + 1, 0, OL_Y])
+        rod_round(OL_W, OL_H, OL_R, HOLE_T);
+
+      // кнопки — такие же сквозные проёмы
+      for (y = BTN_YS)
+        translate([face_x - 1, 0, y])
+          rotate([0, -90, 0]) cylinder(d = BTN_D, h = HOLE_T, center = true);
+
+      // гриль — вертикальные щели в задней половине, сквозь стенку
+      for (a = [GRILL_A0:GRILL_STEP:GRILL_LAST])
+        rotate([0, 0, a])
+          translate([SPK_D / 2 - WALL - 0.3, -GRILL_W / 2, BASE_T - 1])
+            cube([WALL + 1.5, GRILL_W, GRILL_H]);
+
+      // отверстия микрофона в крышке
+      for (i = [0:MIC_N - 1]) {
+        a = i * 360 / MIC_N;
+        translate([MIC_R * cos(a), MIC_R * sin(a), H_SPK - 0.01])
+          cylinder(d = MIC_D, h = TOP_T + 1);
+      }
+      translate([0, 0, H_SPK - 0.01]) cylinder(d = MIC_D, h = TOP_T + 1);
+
+      // слот USB-C — на задней стенке (x=-46 центр щели, насквозь через корпус)
+      translate([-SPK_D / 2 + 1.5, 0, USB_Z])
+        rod_round(USB_W, USB_H, USB_X, 8);
     }
 
-    // лоб под экран и кнопки (плоский участок срезается с цилиндра).
-    // Срез ограничен снизу полом BASE_T — иначе вырезается кусок дна (дырка снизу).
-    translate([face_x - FLAT_DEPTH - 1, -FLAT_W / 2, BASE_T])
-      cube([FLAT_DEPTH + 1, FLAT_W, H_SPK - TOP_T - BASE_T]);
+    // основание: сплошная плита под гнездом (0..BASE_FLOOR)
+    translate([0, 0, 0]) cylinder(r = spk_in / 2, h = BASE_FLOOR + 0.01);
 
-    // окно OLED — канал НАСКВОЗЬ через лоб и стенку (длиннее наружного
-    // диаметра), чтобы снаружи был реальный сквозной проём.
-    translate([face_x + 1, 0, OL_Y])
-      rod_round(OL_W, OL_H, OL_R, HOLE_T);
+    // конусное гнездо под дно-заглушку (сужается книзу → клин)
+    translate([0, 0, BASE_FLOOR])
+      cylinder(r1 = SOCKET_RB, r2 = SOCKET_RB + 1.0, h = SOCKET_H, $fn = 120);
 
-    // кнопки — такие же сквозные проёмы
-    for (y = BTN_YS)
-      translate([face_x - 1, 0, y])
-        rotate([0, -90, 0]) cylinder(d = BTN_D, h = HOLE_T, center = true);
-
-    // гриль — вертикальные щели в задней половине, сквозь стенку
-    for (a = [GRILL_A0:GRILL_STEP:GRILL_LAST])
+    // боковые ниши над гнездом: пальцу/отвёртке есть куда зацепить заглушку
+    for (a = [90, 270])
       rotate([0, 0, a])
-        translate([SPK_D / 2 - WALL - 0.3, -GRILL_W / 2, BASE_T - 1])
-          cube([WALL + 1.5, GRILL_W, GRILL_H]);
+        translate([39.5, 0, BASE_FLOOR + SOCKET_H / 2])
+          cube([3.5, 9, SOCKET_H], center = true);
+  }
+}
 
-    // отверстия микрофона в крышке
-    for (i = [0:MIC_N - 1]) {
-      a = i * 360 / MIC_N;
-      translate([MIC_R * cos(a), MIC_R * sin(a), H_SPK - 0.01])
-        cylinder(d = MIC_D, h = TOP_T + 1);
-    }
-    translate([0, 0, H_SPK - 0.01]) cylinder(d = MIC_D, h = TOP_T + 1);
+// --------------------------- ДНО-ЗАГЛУШКА ---------------------------
+// Диск с конусным краем: вставляется в гнездо сверху вниз, клином сидит.
+// Вынимается за боковые выемки (пальцем или плоской отвёрткой).
+module deck() {
+  difference() {
+    // конусный диск: сверху 38.4, снизу 37.4 — плотно садится в гнездо
+    cylinder(r1 = DECK_RB, r2 = DECK_R, h = DECK_T, $fn = 120);
 
-    // слот USB-C — на задней стенке (x=-46 центр щели, насквозь через корпус)
-    translate([-SPK_D / 2 + 1.5, 0, USB_Z])
-      rod_round(USB_W, USB_H, USB_X, 8);
+    // выемки под палец/отвёртку у края
+    for (a = [90, 270])
+      rotate([0, 0, a])
+        translate([DECK_RB + 2, 0, -0.01])
+          cylinder(d = 9, h = DECK_T + 0.02, $fn = 48);
   }
 }
 
 // ------------------------------ СБОРКА ------------------------------
-color("Gainsboro") speaker();
+RENDER_DECK = 0;
+if (RENDER_DECK)
+  color("Gainsboro") translate([0, 0, DECK_T / 2]) deck();
+else
+  color("Gainsboro") speaker();
