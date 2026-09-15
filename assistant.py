@@ -20,6 +20,7 @@ from num2words import num2words
 import neko_ha
 import neko_miio
 import neko_music
+import neko_web
 import settings as neko_settings
 
 player = neko_music.MusicPlayer()
@@ -97,7 +98,9 @@ SYSTEM_PROMPT = (
     "vacuum.start/vacuum.pause/vacuum.return_to_base, список покупок — todo.add_item.\n"
     "Часть устройств (люстра, очиститель воздуха) управляется ЛОКАЛЬНО по LAN через инструменты "
     "mi_* (Xiaomi miio) — имя указывай по-русски: «люстра», «очиститель». По LAN девайсы отвечают "
-    "только когда реально включены в розетку; иначе инструмент вернёт «не на связи» — так и скажи."
+    "только когда реально включены в розетку; иначе инструмент вернёт «не на связи» — так и скажи.\n"
+    "Внешние факты (погода не из HA, новости, рецепты, историю, незнакомые слова) — сначала "
+    "поищи через web_search, вернёт ссылки с заголовками и сниппетами. Не выдумывай."
 )
 
 CHIME_FILE = str(_cfg("chime_file", "chime.wav"))
@@ -172,7 +175,7 @@ def recognize(audio: np.ndarray) -> str:
 
 # ---------- LLM ----------
 def _run_tool(name: str, args: dict):
-    for mod in (neko_ha, neko_miio):
+    for mod in (neko_ha, neko_miio, neko_web):
         if name in mod.TOOL_NAMES:
             return mod.run_tool(name, args)
     raise RuntimeError(f"нет такого инструмента {name}")
@@ -191,7 +194,7 @@ def ask(prompt: str) -> str:
         "temperature": 0.7,
         "max_tokens": 512,
     }
-    tools_all = neko_ha.TOOLS + neko_miio.TOOLS
+    tools_all = neko_ha.TOOLS + neko_miio.TOOLS + neko_web.TOOLS
     payload["tools"] = tools_all
     payload["tool_choice"] = "auto"
 
