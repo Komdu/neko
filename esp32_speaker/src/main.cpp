@@ -15,9 +15,20 @@ const int TCP_PORT = 4211;
 const int SAMPLE_RATE_SPK = 48000;  // динамик (TTS-ответы)
 const int SAMPLE_RATE_MIC = 16000;  // микрофон (whisper)
 
-IPAddress staticIP(192, 168, 0, 200);
+IPAddress staticIP;
 IPAddress gateway(192, 168, 0, 1);
 IPAddress subnet(255, 255, 255, 0);
+
+// "STATIC_IP" из secrets.h в IPAddress (с запасным дефолтом)
+static IPAddress parseIP(const char* s) {
+  int o[4] = {192, 168, 0, 200};
+  if (sscanf(s, "%d.%d.%d.%d", &o[0], &o[1], &o[2], &o[3]) != 4) {
+    o[0] = 192; o[1] = 168; o[2] = 0; o[3] = 200;
+  }
+  for (int i = 0; i < 4; i++)
+    if (o[i] < 0 || o[i] > 255) o[i] = (i == 3) ? 200 : 0;
+  return IPAddress(o[0], o[1], o[2], o[3]);
+}
 
 // ---------- Динамик: MAX98357A (I2S0 TX) ----------
 #define I2S_SPK_BCK 26
@@ -443,6 +454,8 @@ void setup() {
 
   setupI2S0();
   setupI2S1();
+
+  staticIP = parseIP(STATIC_IP);
 
   pinMode(BTN_VOL_UP, INPUT_PULLUP);
   pinMode(BTN_VOL_DOWN, INPUT_PULLUP);

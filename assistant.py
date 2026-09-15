@@ -20,8 +20,21 @@ from num2words import num2words
 import neko_ha
 import neko_miio
 import neko_music
+import settings as neko_settings
 
 player = neko_music.MusicPlayer()
+
+_NS = neko_settings.load()
+_ASS = _NS.get("assistant") or {}
+_ESP = _NS.get("esp32") or {}
+
+
+def _cfg(key, default):
+    v = _ASS.get(key)
+    if v is None or v == "":
+        return os.getenv(key, default)
+    return v
+
 
 def _read_auth_token():
     """Токен берём из env или из esp32_speaker/src/secrets.h (единый источник)."""
@@ -40,22 +53,23 @@ def _read_auth_token():
         pass
     return None
 
-ESP32_HOST = os.getenv("ESP32_HOST", "192.168.0.200")
-ESP32_PORT = int(os.getenv("ESP32_PORT", "4211"))
-ESP32_CTRL_PORT = int(os.getenv("ESP32_CTRL_PORT", "4212"))
-AUTH_TOKEN = _read_auth_token()
+ESP32_HOST = os.getenv("ESP32_HOST") or _ESP.get("static_ip") or "192.168.0.200"
+ESP32_PORT = int(_cfg("esp32_port", 4211))
+ESP32_CTRL_PORT = int(_cfg("esp32_ctrl_port", 4212))
+AUTH_TOKEN = os.getenv("NEKO_AUTH_TOKEN") or _read_auth_token()
 RECONNECT_DELAY = 3
 
 speech_stop = threading.Event()  # прерывание речи кнопкой MAIN (short во время говорения)
 mic_on = True                    # ожидаемое состояние микрофона (для кнопки MAIN в idle)
 ctrl = None                      # CtrlClient, создаётся в main()
 
-USE_WAKE_WORD = os.getenv("USE_WAKE_WORD", "1") == "1"
-WAKE_WORDS = os.getenv("WAKE_WORDS", "неко,нэко,neko").lower().split(",")
-WAKE_RATIO = float(os.getenv("WAKE_RATIO", "0.72"))  # порог нечёткого совпадения (0..1)
+USE_WAKE_WORD = str(_cfg("use_wake_word", os.getenv("USE_WAKE_WORD", "1"))) == "1"
+WAKE_WORDS = str(_cfg("wake_words", "неко,нэко,neko")).lower().split(",")
+WAKE_RATIO = float(_cfg("wake_ratio", 0.72))  # порог нечёткого совпадения (0..1)
 
-LLM_URL = os.getenv("LLM_URL", "http://localhost:1234/v1/chat/completions")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-7b-instruct")
+LLM_URL = str(_cfg("llm_url", "http://localhost:1234/v1/chat/completions"))
+LLM_MODEL = str(_cfg("llm_model", "qwen2.5-7b-instruct"))
+VOLUME = float(_cfg("volume", 0.85))  # громкость музыки/фиала по умолчанию
 
 SAMPLE_RATE_MIC = 16000
 SAMPLE_RATE_SPK = 48000
@@ -86,9 +100,9 @@ SYSTEM_PROMPT = (
     "только когда реально включены в розетку; иначе инструмент вернёт «не на связи» — так и скажи."
 )
 
-CHIME_FILE = os.getenv("CHIME_FILE", "chime.wav")
-CHIME_SLEEP = float(os.getenv("CHIME_SLEEP", "0.4"))  # пауза после чимы (эхо динамика)
-MAX_LISTEN_S = float(os.getenv("MAX_LISTEN_S", "5"))  # сколько ждём команду после чимы
+CHIME_FILE = str(_cfg("chime_file", "chime.wav"))
+CHIME_SLEEP = float(_cfg("chime_sleep", 0.4))  # пауза после чимы (эхо динамика)
+MAX_LISTEN_S = float(_cfg("max_listen_s", 5))  # сколько ждём команду после чимы
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {DEVICE}")
@@ -168,6 +182,7 @@ MAX_TOOL_ROUNDS = 5
 
 
 def ask(prompt: str) -> str:
+    """LLM-запрос с поддержкой tool-use. При ошибке кидает RuntimeError с причиной."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}]
     payload = {
@@ -181,7 +196,17 @@ def ask(prompt: str) -> str:
     payload["tool_choice"] = "auto"
 
     for _ in range(MAX_TOOL_ROUNDS):
-        resp = requests.post(LLM_URL, json=payload, timeout=120).json()
+        try:
+            r = requests.post(LLM_URL, json=payload, timeout=120)
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(f"LM Studio недоступен: {e}") from e
+        if r.status_code != 200:
+            body = r.text[:300]
+            raise RuntimeError(f"LM Studio {r.status_code}: {body}")
+        resp = r.json()
+        if "choices" not in resp:
+            err = resp.get("error") or resp.get("detail") or resp
+            raise RuntimeError(f"LM Studio ответил без choices: {str(err)[:200]}")
         msg = resp["choices"][0]["message"]
         tool_calls = msg.get("tool_calls")
         if not tool_calls:
@@ -311,21 +336,21 @@ class NetStream:
         self.busy = busy
 
     def send(self, data: bytes):
+        # отправляем под блокировкой: recv-поток (close) не закроет fd во время sendall
         with self._lock:
             sock = self.sock
-        if sock is None:
-            return
-        try:
-            sock.sendall(data)
-        except OSError as e:
-            print(f"[NET] send ошибка: {e!r}, пересоздаю соединение")
-            with self._lock:
+            if sock is None:
+                return
+            try:
+                sock.sendall(data)
+            except OSError as e:
+                print(f"[NET] send ошибка: {e!r}, пересоздаю соединение")
                 if self.sock is sock:
                     self.sock = None
-            try:
-                sock.close()
-            except OSError:
-                pass
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
     def recv_frame(self, timeout=0.1):
         try:
@@ -398,20 +423,19 @@ class CtrlClient:
     def send(self, line: str):
         with self._lock:
             sock = self._sock
-        if sock is None:
-            print(f"[CTRL] не подключён — команда потеряна: {line}")
-            return
-        try:
-            sock.sendall((line + "\n").encode())
-        except OSError as e:
-            print(f"[CTRL] send ошибка: {e!r}, пересоздаю соединение")
-            with self._lock:
+            if sock is None:
+                print(f"[CTRL] не подключён — команда потеряна: {line}")
+                return
+            try:
+                sock.sendall((line + "\n").encode())
+            except OSError as e:
+                print(f"[CTRL] send ошибка: {e!r}, пересоздаю соединение")
                 if self._sock is sock:
                     self._sock = None
-            try:
-                sock.close()
-            except OSError:
-                pass
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
     def _run(self):
         buf = b""
@@ -505,7 +529,11 @@ def speak(net: NetStream, text: str):
 
 
 def process_command(command: str, net: NetStream):
-    answer = ask(command)
+    try:
+        answer = ask(command)
+    except Exception as e:
+        print(f"[ERR] LLM: {e!r}")
+        answer = "Мозги перегружены: LM Studio не отвечает или модель не загружена."
     print(f"[LLM] {answer!r}")
     pcm = synthesize(answer)
     print(f"[TTS] {len(pcm)/2/SAMPLE_RATE_SPK:.2f}s аудио")
@@ -528,7 +556,7 @@ def handle_music(command: str, net: NetStream) -> bool:
     if player.playing:
         player.stop()
     speak(net, "сейчас поставлю")
-    player.play(query, net.send)
+    player.play(query, net.send, volume=VOLUME)
     print(f"[MUSIC] ставлю: {query or 'по умолчанию'}")
     return True
 
@@ -576,8 +604,23 @@ def play_chime(net: NetStream) -> float:
     return chime_dur + CHIME_SLEEP
 
 
+def warn_llm_model():
+    """Предупреждает, если LLM-модель в LM Studio не загружена (channel error)."""
+    try:
+        base = re.match(r"(https?://[^/]+)", LLM_URL)
+        r = requests.get((base.group(1) if base else "http://localhost:1234") + "/api/v0/models",
+                         timeout=5)
+        for md in r.json().get("data", []):
+            if md.get("id") == LLM_MODEL and md.get("state") == "not-loaded":
+                print(f"[LLM] ВНИМАНИЕ: {LLM_MODEL} в LM Studio НЕ загружена — "
+                      "выбери модель в окне LM Studio, иначе ответов не будет.")
+    except Exception:
+        pass
+
+
 def main():
     global ctrl
+    warn_llm_model()
     net = NetStream()
     net.start()
     ctrl = CtrlClient()

@@ -8,6 +8,9 @@ venv/
 wheels/
 tmp/
 mic_record.wav
+log.txt
+webui_flash.log
+settings.json
 
 # Пробные скрипты
 beep_test.py
