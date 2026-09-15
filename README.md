@@ -75,14 +75,16 @@ pio run -e amp_probe -t upload && pio device monitor -e amp_probe
 Статик-адрес колонки: `192.168.0.200` (его ждёт `assistant.py`), меняется там же.
 
 ### Прошивка по сети (OTA)
-Боевая прошивка умеет обновляться по WiFi (ArduinoOTA, порт 3232, пароль `neko-ota`):
+Боевая прошивка умеет обновляться по WiFi (ArduinoOTA, порт 3232). Пароль задаётся
+в `esp32_speaker/src/secrets.h` (`OTA_PASSWORD`) и подхватывается `ota.sh` автоматически
+(в самом репозитории пароля нет):
 
 ```bash
 /mnt/hdd/neko/ota.sh     # = pio run -e esp32dev_ota -t upload на 192.168.0.200
 ```
 
 Условия: колонка в сети и уже стоит OTA-прошивка. **Если WiFi недоступен** —
-только UART (`pio run -e esp32dev -t upload`). Пароль и адрес меняются в
+только UART (`pio run -e esp32dev -t upload`). Адрес меняется в
 `platformio.ini` (`[env:esp32dev_ota]`).
 
 ### Прошивка без USB-C
@@ -154,6 +156,14 @@ venv/bin/python ym_token.py   # откроешь ya.ru/device, введёшь к
 Управляющий TCP-канал: `:4212` (строки через `\n`). Ходят `EV BTN SHORT/LONG 0/1`,
 `EV MUTE 0|1`, `EV VOL` (ESP32→ПК) и `FLUSH`, `MUTE 0|1`, `VOL n` (ПК→ESP32).
 `FLUSH` сбрасывает буфер динамика — используется при стопе речи/музыки, паузе.
+
+### Авторизация TCP-каналов
+Оба порта (`:4211` и `:4212`) требуют токен: сразу после подключения клиент шлёт
+`AUTH <токен>\n`, в ответ сервер отвечает `AUTH OK`, иначе закрывает соединение.
+Токен задаётся в `esp32_speaker/src/secrets.h` (`AUTH_TOKEN`), это один общий секрет
+для прошивки и ПК. Если при этом у вас нет токена в `secrets.h`, клиенты (assistant.py,
+neko_music.py, mic_debug.py, mic_preview.py) читают его из того же файла автоматически.
+Токен можно переопределить через env `NEKO_AUTH_TOKEN`.
 
 ### Флоу работы
 1. Тишина: колонка в режиме idle (`[VAD] жду wake-word «Neko»...`) и слушает микрофон.

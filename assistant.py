@@ -23,9 +23,27 @@ import neko_music
 
 player = neko_music.MusicPlayer()
 
+def _read_auth_token():
+    """Токен берём из env или из esp32_speaker/src/secrets.h (единый источник)."""
+    tok = os.getenv("NEKO_AUTH_TOKEN")
+    if tok:
+        return tok
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "esp32_speaker", "src", "secrets.h")
+    try:
+        with open(path) as f:
+            for line in f:
+                m = re.match(r'\s*#define\s+AUTH_TOKEN\s+"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return None
+
 ESP32_HOST = os.getenv("ESP32_HOST", "192.168.0.200")
 ESP32_PORT = int(os.getenv("ESP32_PORT", "4211"))
 ESP32_CTRL_PORT = int(os.getenv("ESP32_CTRL_PORT", "4212"))
+AUTH_TOKEN = _read_auth_token()
 RECONNECT_DELAY = 3
 
 speech_stop = threading.Event()  # прерывание речи кнопкой MAIN (short во время говорения)
@@ -257,6 +275,25 @@ class UtteranceCapture:
         return None
 
 
+def _handshake(sock, tag):
+    """Авторизация на ESP32: «AUTH <токен>» -> ждём «AUTH OK»."""
+    token = AUTH_TOKEN
+    if not token:
+        print(f"{tag} токен не задан — подключаюсь без авторизации")
+        return True
+    try:
+        sock.sendall(f"AUTH {token}\n".encode())
+        resp = sock.recv(64).decode(errors="ignore").strip()
+    except OSError as e:
+        print(f"{tag} auth ошибка: {e!r}")
+        return False
+    if "AUTH OK" not in resp:
+        print(f"{tag} сервер отклонил авторизацию: {resp!r}")
+        return False
+    print(f"{tag} авторизован")
+    return True
+
+
 class NetStream:
     """TCP-связь с ESP32: отдельный поток всегда читает микрофон,
     во время речи ответа сбрасывает (чтобы не слышать собственный голос)."""
@@ -303,6 +340,10 @@ class NetStream:
             try:
                 sock = socket.create_connection((ESP32_HOST, ESP32_PORT), timeout=10)
                 sock.settimeout(3)
+                if not _handshake(sock, "[NET]"):
+                    sock.close()
+                    time.sleep(RECONNECT_DELAY)
+                    continue
                 with self._lock:
                     self.sock = sock
                 print("[NET] подключён")
@@ -379,6 +420,10 @@ class CtrlClient:
             try:
                 sock = socket.create_connection((ESP32_HOST, ESP32_CTRL_PORT), timeout=10)
                 sock.settimeout(3)
+                if not _handshake(sock, "[CTRL]"):
+                    sock.close()
+                    time.sleep(RECONNECT_DELAY)
+                    continue
                 with self._lock:
                     self._sock = sock
                 print("[CTRL] управляющий канал подключён")

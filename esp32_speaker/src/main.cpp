@@ -311,15 +311,42 @@ bool audioPlayingNow() {
   return jitterFill > 0 || (millis() - lastAudioMs) < 700;
 }
 
+// Hands-токена: клиент должен прислать "AUTH <токен>", иначе соединение закрывается
+static bool authClient(WiFiClient& c, const char* tag) {
+  if (!AUTH_TOKEN[0]) return true;  // пустой токен => авторизация отключена
+  const unsigned long AUTH_TIMEOUT = 4000;
+  c.setTimeout(1000);
+  unsigned long t0 = millis();
+  String line;
+  while (millis() - t0 < AUTH_TIMEOUT) {
+    if (c.available()) {
+      line = c.readStringUntil('\n');
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  line.trim();
+  String want = String("AUTH ") + AUTH_TOKEN;
+  if (line != want) return false;
+  c.print("AUTH OK\n");
+  Serial.printf("%s авторизация успешна (%s)\n", tag, c.remoteIP().toString().c_str());
+  return true;
+}
+
 static void ctrlTask(void* param) {
   while (true) {
     if (!ctrlConnected && WiFi.status() == WL_CONNECTED) {
       WiFiClient c = ctrlServer.available();
       if (c) {
-        ctrlClient = c;
-        ctrlConnected = true;
-        ctrlClient.setNoDelay(true);
-        Serial.println("[CTRL] клиент подключён");
+        if (authClient(c, "[CTRL]")) {
+          ctrlClient = c;
+          ctrlConnected = true;
+          ctrlClient.setNoDelay(true);
+          Serial.println("[CTRL] клиент авторизован");
+        } else {
+          c.stop();
+          Serial.println("[CTRL] неверный токен, соединение закрыто");
+        }
       }
     }
 
@@ -473,6 +500,12 @@ void loop() {
   if (!clientConnected && WiFi.status() == WL_CONNECTED) {
     WiFiClient c = server.available();
     if (c) {
+      if (!authClient(c, "[NET]")) {
+        c.stop();
+        Serial.printf("[NET] неверный токен, соединение закрыто (%s)\n",
+                      c.remoteIP().toString().c_str());
+        return;
+      }
       xSemaphoreTake(connLock, portMAX_DELAY);
       client = c;
       clientConnected = true;

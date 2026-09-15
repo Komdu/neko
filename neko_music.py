@@ -13,6 +13,23 @@ DEFAULT_QUERY = "популярное"
 _ym = None  # лениво инициализированный клиент yandex-music
 
 PLAY_KIND = re.compile(r"музык\w*|песн\w*|трек\w*|композиц\w*", re.I)
+
+
+def _read_auth_token():
+    tok = os.getenv("NEKO_AUTH_TOKEN")
+    if tok:
+        return tok
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "esp32_speaker", "src", "secrets.h")
+    try:
+        with open(path) as f:
+            for line in f:
+                m = re.match(r'\s*#define\s+AUTH_TOKEN\s+"([^"]+)"', line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return None
 PLAY_ACTION = re.compile(r"включ\w*|постав[^.]*|запуст\w*|сыграй|врубай", re.I)
 STOP_KIND = re.compile(r"(?:выключ\w*|останов\w*|прекрат\w*)\s+(?:музык\w*|песн\w*|трек\w*)", re.I)
 STOP_ALONE = re.compile(r"\b(?:стоп|хватит|заткнись|хватит музыки)\b", re.I)
@@ -186,6 +203,12 @@ def main():
     port = int(os.getenv("ESP32_PORT", "4211"))
 
     sock = socket.create_connection((host, port), timeout=15)
+    token = os.getenv("NEKO_AUTH_TOKEN") or _read_auth_token()
+    if token:
+        sock.sendall(f"AUTH {token}\n".encode())
+        resp = sock.recv(64).decode(errors="ignore").strip()
+        if "AUTH OK" not in resp:
+            raise SystemExit(f"[MUSIC] сервер отклонил авторизацию: {resp!r}")
     print(f"[MUSIC] колонка {host}:{port} подключена, Ctrl+C — стоп")
     player = MusicPlayer()
     player.play(query, sock.sendall, volume=volume)

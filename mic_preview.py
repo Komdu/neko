@@ -8,6 +8,7 @@
 
 import collections
 import os
+import re
 import socket
 import threading
 import time
@@ -242,6 +243,22 @@ class PreviewApp(QMainWindow):
     def _connect(self):
         self.sock = socket.create_connection((HOST, PORT), timeout=10)
         self.sock.settimeout(1)
+        tok = os.getenv("NEKO_AUTH_TOKEN")
+        if not tok:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "esp32_speaker", "src", "secrets.h")
+            try:
+                for line in open(path):
+                    m = re.match(r'\s*#define\s+AUTH_TOKEN\s+"([^"]+)"', line)
+                    if m:
+                        tok = m.group(1)
+                        break
+            except OSError:
+                pass
+        if tok:
+            self.sock.sendall(f"AUTH {tok}\n".encode())
+            if b"AUTH OK" not in self.sock.recv(64):
+                raise OSError("auth: сервер отклонил токен")
         self.state = f"колонка {HOST}:{PORT}"
 
     def _recv_loop(self):

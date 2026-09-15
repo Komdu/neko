@@ -1,4 +1,5 @@
 import os
+import re
 import socket
 import sys
 import time
@@ -14,11 +15,31 @@ WINDOW = SR // 10  # 0.1 сек
 _BAR = 40  # ширина полосы уровня
 
 
+def auth(sock):
+    tok = os.getenv("NEKO_AUTH_TOKEN")
+    if not tok:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "esp32_speaker", "src", "secrets.h")
+        try:
+            for line in open(path):
+                m = re.match(r'\s*#define\s+AUTH_TOKEN\s+"([^"]+)"', line)
+                if m:
+                    tok = m.group(1)
+                    break
+        except OSError:
+            pass
+    if tok:
+        sock.sendall(f"AUTH {tok}\n".encode())
+        if b"AUTH OK" not in sock.recv(64):
+            raise SystemExit("auth: сервер отклонил токен")
+
+
 def connect():
     while True:
         try:
             sock = socket.create_connection((HOST, PORT), timeout=10)
             sock.settimeout(1)
+            auth(sock)
             print(f"[NET] подключён к {HOST}:{PORT}, микрофон льётся 16к/s16/mono")
             print("Ctrl+C — выход\n")
             return sock
