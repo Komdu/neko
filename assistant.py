@@ -100,12 +100,27 @@ SYSTEM_PROMPT = (
     "mi_* (Xiaomi miio) — имя указывай по-русски: «люстра», «очиститель». По LAN девайсы отвечают "
     "только когда реально включены в розетку; иначе инструмент вернёт «не на связи» — так и скажи.\n"
     "Внешние факты (погода не из HA, новости, рецепты, историю, незнакомые слова) — сначала "
-    "поищи через web_search, вернёт ссылки с заголовками и сниппетами. Не выдумывай."
+    "поищи через web_search, вернёт ссылки с заголовками и сниппетами. Не выдумывай.\n"
+    "Эмоция для экрана: начинай каждую реплику с одной метки в квадратных скобках из списка: "
+    "[idle], [neutral], [happy], [sad], [angry], [surprised], [thinking], [love], [cry], [lol], "
+    "[wink]. Пример: «[happy]Конечно, включаю!». Метку не произноси вслух."
 )
 
 CHIME_FILE = str(_cfg("chime_file", "chime.wav"))
 CHIME_SLEEP = float(_cfg("chime_sleep", 0.4))  # пауза после чимы (эхо динамика)
 MAX_LISTEN_S = float(_cfg("max_listen_s", 5))  # сколько ждём команду после чимы
+
+EMOTIONS = frozenset({"idle", "neutral", "happy", "sad", "angry", "surprised",
+                      "thinking", "love", "cry", "lol", "wink"})
+EMO_RE = re.compile(r"^\s*\[([A-Za-z]+)\]\s*")
+
+
+def _extract_emotion(text: str):
+    """Достаёт ведущую метку «[эмоция]», оставляя чистый текст для TTS."""
+    m = EMO_RE.match(text)
+    if m and m.group(1).lower() in EMOTIONS:
+        return m.group(1).lower(), text[m.end():]
+    return None, text
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {DEVICE}")
@@ -533,11 +548,15 @@ def speak(net: NetStream, text: str):
 
 def process_command(command: str, net: NetStream):
     try:
+        ctrl.send("EMOTION thinking")
         answer = ask(command)
     except Exception as e:
         print(f"[ERR] LLM: {e!r}")
         answer = "Мозги перегружены: LM Studio не отвечает или модель не загружена."
-    print(f"[LLM] {answer!r}")
+    emo, answer = _extract_emotion(answer)
+    if emo:
+        ctrl.send(f"EMOTION {emo}")
+    print(f"[LLM] [{emo or '-'}] {answer!r}")
     pcm = synthesize(answer)
     print(f"[TTS] {len(pcm)/2/SAMPLE_RATE_SPK:.2f}s аудио")
     _send_pcm(net, pcm)
@@ -552,6 +571,7 @@ def handle_music(command: str, net: NetStream) -> bool:
     if act == "stop":
         if player.playing:
             player.stop()
+            ctrl.send("EMOTION idle")
             speak(net, "останавливаю музыку")
         else:
             speak(net, "музыка сейчас и так не играет")
@@ -559,6 +579,7 @@ def handle_music(command: str, net: NetStream) -> bool:
     if player.playing:
         player.stop()
     speak(net, "сейчас поставлю")
+    ctrl.send("EMOTION happy")
     player.play(query, net.send, volume=VOLUME)
     print(f"[MUSIC] ставлю: {query or 'по умолчанию'}")
     return True

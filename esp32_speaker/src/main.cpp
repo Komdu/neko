@@ -1,12 +1,31 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <driver/i2s.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+
+#include "neko_face.h"
 
 #ifdef ENABLE_OTA
 #include <ArduinoOTA.h>
 #endif
 
 #include "secrets.h"
+
+// ---------- OLED SSD1306 128x64 (эмоции) ----------
+#define OLED_SDA 21
+#define OLED_SCL 14
+#define OLED_I2C_ADDR 0x3C
+#define EMOTION_HOLD_MS 8000  // сколько держать эмоцию перед возвратом к idle
+Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+bool oledOk = false;
+String curEmotion = "idle";
+unsigned long emotionUntil = 0;
+
+static void showEmotion(const String& name) {
+  if (!oledOk) return;
+  drawEmotion(oled, name == "NONE" ? "idle" : name);
+}
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -390,7 +409,25 @@ static void ctrlTask(void* param) {
           spkGain = VOLUME * l / (float)VOL_LEVELS;
           ctrlSend("EV VOL");
         }
+      } else if (line.startsWith("EMOTION ")) {
+        String emo = line.substring(8);
+        emo.trim();
+        if (emo == "NONE") {
+          curEmotion = "idle";
+        } else {
+          curEmotion = emo;
+          emotionUntil = millis() + EMOTION_HOLD_MS;
+        }
+        showEmotion(curEmotion);
+        Serial.printf("[OLED] эмоция: %s\n", curEmotion.c_str());
       }
+    }
+
+    // fallback: эмоция показана -> возврат к idle
+    if (curEmotion != "idle" && millis() >= emotionUntil) {
+      curEmotion = "idle";
+      showEmotion("idle");
+      Serial.println("[OLED] эмоция -> idle");
     }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
@@ -443,6 +480,15 @@ static void buttonsTask(void* param) {
 void setup() {
   Serial.begin(115200);
   Serial.println("\n=== ESP32 Smart Speaker ===");
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
+    Serial.println("[OLED] дисплей не найден — живём без него");
+  } else {
+    oledOk = true;
+    showEmotion("idle");
+    Serial.println("[OLED] SSD1306 готов");
+  }
 
 #ifdef MIC_PROBE
   runMicProbe();  // бесконечный зонд, дальше не идём
