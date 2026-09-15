@@ -77,9 +77,10 @@ module speaker() {
     translate([0, 0, BASE_T])
       cylinder(d = spk_in, h = H_SPK - BASE_T - TOP_T + 0.01);
 
-    // лоб под экран и кнопки (плоский участок срезается с цилиндра)
+    // лоб под экран и кнопки (плоский участок срезается с цилиндра).
+    // Срез ограничен снизу и сверху — не трогает пол и крышку.
     translate([face_x - FLAT_DEPTH - 1, -FLAT_W / 2, -1])
-      cube([FLAT_DEPTH + 1, FLAT_W, H_SPK + 2]);
+      cube([FLAT_DEPTH + 1, FLAT_W, H_SPK - TOP_T]);
 
     // окно OLED
     translate([face_x - WALL - 1.5, 0, OL_Y])
