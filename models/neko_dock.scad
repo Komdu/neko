@@ -73,9 +73,19 @@ module speaker() {
     // тело колонки
     cylinder(d = SPK_D, h = H_SPK);
 
-    // внутренняя полость (дно BASE_T, крышка TOP_T)
-    translate([0, 0, BASE_T])
-      cylinder(d = spk_in, h = H_SPK - BASE_T - TOP_T + 0.01);
+    // D-образная полость: сзади круглая (радиус spk_in/2), спереди обрезана
+    // плоскостью face_x + FWALL — чтобы спереди осталась стенка FWALL толщиной.
+    FWALL = WALL + 2;  // толщина передней стенки (под OLED и кнопки)
+    intersection() {
+      // круглое ядро полости
+      translate([0, 0, BASE_T])
+        cylinder(d = spk_in, h = H_SPK - BASE_T - TOP_T + 0.01);
+      // передняя грань полости идёт параллельно лбу: весь куб обрезки по
+      // X и Y центрирован на оси колонки, а не торчит в первом квадранте
+      // (+x,+y). Иначе пересечение с круглым ядром даёт "четверть-полость".
+      translate([-spk_in / 2, -spk_in / 2, BASE_T - 0.01])
+        cube([spk_in / 2 + face_x + FWALL, spk_in, H_SPK - BASE_T - TOP_T + 0.02]);
+    }
 
     // лоб под экран и кнопки (плоский участок срезается с цилиндра).
     // Срез ограничен снизу и сверху — не трогает пол и крышку.
@@ -84,12 +94,12 @@ module speaker() {
 
     // окно OLED (сквозное: от внешнего лба до внутренней полости)
     translate([face_x + 1, 0, OL_Y])
-      rod_round(OL_W, OL_H, OL_R, WALL + 6);
+      rod_round(OL_W, OL_H, OL_R, WALL + FWALL + 2);
 
     // кнопки
     for (y = BTN_YS)
       translate([face_x - 1, 0, y])
-        rotate([0, -90, 0]) cylinder(d = BTN_D, h = WALL + 2, center = true);
+        rotate([0, -90, 0]) cylinder(d = BTN_D, h = WALL + FWALL + 2, center = true);
 
     // гриль — вертикальные щели в задней половине, сквозь стенку
     for (a = [GRILL_A0:GRILL_STEP:GRILL_LAST])
